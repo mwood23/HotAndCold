@@ -2,18 +2,23 @@ import { Page } from './shared';
 import { PlayPage } from './pages/PlayPage';
 import { StatsPage } from './pages/StatsPage';
 import { WinPage } from './pages/WinPage';
-import { usePage } from './hooks/usePage';
+import { PageContextProvider, usePage } from './hooks/usePage';
 import { Progress } from './components/progress';
-import { useGame } from './hooks/useGame';
+import { GameContextProvider, useGame } from './hooks/useGame';
 import { Logo } from './components/logo';
 import { prettyNumber, sendMessageToDevvit } from './utils';
-import { useConfirmation } from './hooks/useConfirmation';
+import { ConfirmationDialogProvider, useConfirmation } from './hooks/useConfirmation';
 import { AnimatedNumber } from './components/timer';
 import { HelpMenu } from './components/helpMenu';
 import { useState } from 'react';
 import { HowToPlayModal } from './components/howToPlayModal';
 import { LoadingPage } from './pages/LoadingPage';
-import { useSetUserSettings, useUserSettings } from './hooks/useUserSettings';
+import {
+  UserSettingsContextProvider,
+  useSetUserSettings,
+  useUserSettings,
+} from './hooks/useUserSettings';
+import { MockProvider } from './hooks/useMocks';
 
 const getPage = (page: Page) => {
   switch (page) {
@@ -30,7 +35,7 @@ const getPage = (page: Page) => {
   }
 };
 
-export const App = () => {
+export const AppComponent = () => {
   const page = usePage();
   const { layout, sortType, isUserOptedIntoReminders } = useUserSettings();
   const setUserSettings = useSetUserSettings();
@@ -142,5 +147,21 @@ export const App = () => {
       <HowToPlayModal isOpen={howToPlayOpen} onClose={() => setHowToPlayOpen(false)} />
       {/* <FriendsModal isOpen={friendsModalOpen} onClose={() => setFriendsModalOpen(false)} /> */}
     </div>
+  );
+};
+
+export const SinglePlayer = () => {
+  return (
+    <MockProvider gameStatus="PLAYING" progressTestScenario="earlyProgress">
+      <ConfirmationDialogProvider>
+        <PageContextProvider>
+          <UserSettingsContextProvider>
+            <GameContextProvider>
+              <AppComponent />
+            </GameContextProvider>
+          </UserSettingsContextProvider>
+        </PageContextProvider>
+      </ConfirmationDialogProvider>
+    </MockProvider>
   );
 };

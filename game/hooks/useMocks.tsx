@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react';
-import { Game } from '../shared';
+import { SingleGame } from '../shared';
 import {
   CHALLENGE_LEADERBOARD_RESPONSE,
   generateMockProgressData,
@@ -16,7 +16,7 @@ export type MockConfig = {
     progressTestScenario: keyof ReturnType<typeof generateTestScenarios>;
   };
   mocks?: {
-    game?: Partial<Game>;
+    game?: Partial<SingleGame>;
     challengeLeaderboardResponse?: any;
     generateMockProgressData?: ReturnType<typeof generateMockProgressData>;
   };

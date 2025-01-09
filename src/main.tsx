@@ -103,10 +103,13 @@ Devvit.addCustomPostType({
       sendMessageToWebview(context, {
         type: 'INIT',
         payload: {
-          challengeInfo: omit(challengeInfo, ['word']),
-          challengeUserInfo,
-          number: challenge,
-          challengeProgress: challengeProgress,
+          type: 'SINGLE_PLAYER',
+          game: {
+            challengeInfo: omit(challengeInfo, ['word']),
+            challengeUserInfo,
+            number: challenge,
+            challengeProgress: challengeProgress,
+          },
         },
       });
 
@@ -160,7 +163,7 @@ Devvit.addCustomPostType({
                   initialState;
 
                 sendMessageToWebview(context, {
-                  type: 'GAME_INIT_RESPONSE',
+                  type: 'SINGLE_PLAYER_GAME_INIT_RESPONSE',
                   payload: {
                     challengeInfo: omit(challengeInfo, ['word']),
                     challengeUserInfo,

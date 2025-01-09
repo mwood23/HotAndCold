@@ -17,7 +17,8 @@
     "net"
   ],
   "[typescript]": {
-    "editor.defaultFormatter": "denoland.vscode-deno"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "cSpell.words": ["snoovatar", "zoddy"]
+  "cSpell.words": ["snoovatar", "zoddy"],
+  "typescript.tsdk": "node_modules/typescript/lib"
 }

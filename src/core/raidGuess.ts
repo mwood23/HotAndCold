@@ -27,26 +27,12 @@ import { ChallengeToPost } from './challengeToPost.js';
 export * as Guess from './guess.js';
 
 export const getChallengeUserKey = (challengeNumber: number, username: string) =>
-  `${Challenge.getChallengeKey(challengeNumber)}:user:${username}` as const;
+  `raid:${Challenge.getChallengeKey(challengeNumber)}:user:${username}` as const;
 
 const challengeUserInfoSchema = z
   .object({
     username: z.string(),
-    score: z
-      .string()
-      .transform((val) => {
-        if (val === undefined) return undefined;
-        if (val === '') return undefined;
-
-        const parsed = JSON.parse(val);
-
-        return Score.scoreSchema.parse(parsed);
-      })
-      .optional(),
-    winnersCircleCommentId: z.string().optional(),
     startedPlayingAtMs: redisNumberString.optional(),
-    solvedAtMs: redisNumberString.optional(),
-    gaveUpAtMs: redisNumberString.optional(),
     guesses: z
       .string()
       .transform((val) => {
@@ -100,24 +86,6 @@ const maybeInitForUser = zoddy(
   }
 );
 
-export const markChallengeSolvedForUser = zoddy(
-  z.object({
-    redis: z.union([zodRedis, zodTransaction]),
-    username: zodRedditUsername,
-    challenge: z.number().gt(0),
-    completedAt: z.number(),
-    score: Score.scoreSchema,
-    winnersCircleCommentId: z.string().optional(),
-  }),
-  async ({ redis, username, challenge, completedAt, score, winnersCircleCommentId }) => {
-    await redis.hSet(getChallengeUserKey(challenge, username), {
-      solvedAtMs: completedAt.toString(),
-      score: JSON.stringify(score),
-      winnersCircleCommentId: winnersCircleCommentId ?? '',
-    });
-  }
-);
-
 export const markChallengePlayedForUser = zoddy(
   z.object({
     redis: z.union([zodRedis, zodTransaction]),
@@ -137,165 +105,6 @@ export type Word = {
   is_hint: boolean;
   definition: string;
 };
-
-export function _selectNextHint(params: {
-  similarWords: Word[];
-  previousGuesses: Guess[];
-}): Word | null {
-  const { similarWords, previousGuesses } = params;
-  const words = similarWords.slice(0, 250);
-  const guessedWords = new Set(previousGuesses.map((g) => g.word));
-
-  // Helper to find next unguessed hint
-  const findNextHint = (startIndex: number, endIndex: number, searchForward: boolean) => {
-    const indices = searchForward
-      ? Array.from({ length: endIndex - startIndex + 1 }, (_, i) => startIndex + i)
-      : Array.from({ length: startIndex + 1 }, (_, i) => startIndex - i);
-
-    for (const i of indices) {
-      if (words[i]?.is_hint && !guessedWords.has(words[i].word)) {
-        return words[i];
-      }
-    }
-    return null;
-  };
-
-  // First hint with no guesses - return the furthest unguessed hint
-  if (previousGuesses.length === 0) {
-    return findNextHint(words.length - 1, 0, false);
-  }
-
-  // Find index of their most similar valid guess
-  const validGuesses = previousGuesses.filter((g) => g.rank >= 0);
-  if (validGuesses.length === 0) {
-    return findNextHint(words.length - 1, 0, false);
-  }
-
-  const closestIndex = Math.min(...validGuesses.map((g) => g.rank));
-
-  // If they've guessed the most similar word, look for next unguessed hint
-  if (closestIndex === 0) {
-    return findNextHint(1, words.length - 1, true);
-  }
-
-  // Target halfway between their best guess and the target word
-  const targetIndex = Math.floor(closestIndex / 2);
-
-  // Try to find hint:
-  // 1. Search forward from target
-  const forwardHint = findNextHint(targetIndex, closestIndex, true);
-  if (forwardHint) return forwardHint;
-
-  // 2. Search backward from target
-  const backwardHint = findNextHint(targetIndex - 1, 0, false);
-  if (backwardHint) return backwardHint;
-
-  // 3. Search forward from their closest guess as last resort
-  const lastResortHint = findNextHint(closestIndex + 1, words.length - 1, true);
-  return lastResortHint;
-}
-
-export const getHintForUser = zoddy(
-  z.object({
-    context: zodContext,
-    username: zodRedditUsername,
-    challenge: z.number().gt(0),
-  }),
-  async ({ context, username, challenge }): Promise<SingleGameResponse> => {
-    const challengeInfo = await Challenge.getChallenge({
-      redis: context.redis,
-      challenge,
-    });
-    const wordConfig = await API.getWordConfigCached({
-      context,
-      word: challengeInfo.word,
-    });
-    const challengeUserInfo = await getChallengeUserInfo({
-      redis: context.redis,
-      username,
-      challenge,
-    });
-
-    const newHint = _selectNextHint({
-      previousGuesses: challengeUserInfo.guesses ?? [],
-      similarWords: wordConfig.similar_words,
-    });
-
-    if (!newHint) {
-      throw new Error(`I don't have anymore hints!`);
-    }
-
-    const hintToAdd: z.infer<typeof guessSchema> = {
-      word: newHint.word,
-      timestamp: Date.now(),
-      similarity: newHint.similarity,
-      normalizedSimilarity: Similarity.normalizeSimilarity({
-        closestWordSimilarity: wordConfig.closest_similarity,
-        furthestWordSimilarity: wordConfig.furthest_similarity,
-        targetWordSimilarity: newHint.similarity,
-      }),
-      rank: wordConfig.similar_words.findIndex((x) => x.word === newHint.word),
-      isHint: true,
-    };
-
-    // const txn = await context.redis.watch();
-    // await txn.multi();
-    const txn = context.redis;
-
-    await Challenge.incrementChallengeTotalHints({ redis: txn, challenge });
-
-    const newGuesses = z
-      .array(guessSchema)
-      .parse([...(challengeUserInfo.guesses ?? []), hintToAdd]);
-
-    await txn.hSet(getChallengeUserKey(challenge, username), {
-      guesses: JSON.stringify(newGuesses),
-    });
-
-    // Do not progress when hints are used!
-    // await ChallengeProgress.upsertEntry({
-    //   redis: txn,
-    //   challenge,
-    //   username,
-    //   progress: Math.max(
-    //     hintToAdd.normalizedSimilarity,
-    //     ...challengeUserInfo.guesses?.map((x) => x.normalizedSimilarity) ?? [],
-    //   ),
-    // });
-
-    // await txn.exec();
-
-    const challengeProgress = await ChallengeProgress.getPlayerProgress({
-      challenge,
-      context,
-      sort: 'DESC',
-      start: 0,
-      stop: 1000,
-      username,
-    });
-
-    // Clears out any feedback (like the feedback that prompted them to take a hint!)
-    sendMessageToWebview(context, {
-      type: 'FEEDBACK',
-      payload: {
-        feedback: '',
-      },
-    });
-
-    return {
-      number: challenge,
-      challengeUserInfo: {
-        ...challengeUserInfo,
-        guesses: [...(challengeUserInfo.guesses ?? []), hintToAdd],
-      },
-      challengeInfo: {
-        ...omit(challengeInfo, ['word']),
-        totalHints: (challengeInfo.totalHints ?? 0) + 1,
-      },
-      challengeProgress,
-    };
-  }
-);
 
 export const submitGuess = zoddy(
   z.object({
@@ -678,103 +487,6 @@ export const submitGuess = zoddy(
           ? (challengeInfo.totalPlayers ?? 0) + 1
           : challengeInfo.totalPlayers,
         totalSolves: hasSolved ? (challengeInfo.totalSolves ?? 0) + 1 : 0,
-      },
-      challengeProgress,
-    };
-  }
-);
-
-export const giveUp = zoddy(
-  z.object({
-    context: zodContext,
-    username: zodRedditUsername,
-    challenge: z.number().gt(0),
-  }),
-  async ({ context, username, challenge }): Promise<SingleGameResponse> => {
-    // TODO: Transactions are broken
-    // const txn = await context.redis.watch();
-    // await txn.multi();
-    const txn = context.redis;
-
-    const challengeUserInfo = await getChallengeUserInfo({
-      redis: context.redis,
-      username,
-      challenge,
-    });
-
-    if (challengeUserInfo.startedPlayingAtMs == null) {
-      throw new Error(`User ${username} has not started playing yet`);
-    }
-
-    const challengeInfo = await Challenge.getChallenge({
-      redis: context.redis,
-      challenge,
-    });
-
-    if (!challengeInfo) {
-      throw new Error(`Challenge ${challenge} not found`);
-    }
-
-    await txn.hSet(getChallengeUserKey(challenge, username), {
-      gaveUpAtMs: Date.now().toString(),
-    });
-
-    const guessToAdd: z.infer<typeof guessSchema> = {
-      word: challengeInfo.word,
-      timestamp: Date.now(),
-      similarity: 1,
-      normalizedSimilarity: 100,
-      rank: 0,
-      isHint: true,
-    };
-
-    const newGuesses = z
-      .array(guessSchema)
-      .parse([...(challengeUserInfo.guesses ?? []), guessToAdd]);
-
-    await txn.hSet(getChallengeUserKey(challenge, username), {
-      guesses: JSON.stringify(newGuesses),
-    });
-
-    await Challenge.incrementChallengeTotalGiveUps({ redis: txn, challenge });
-
-    await ChallengeProgress.upsertEntry({
-      redis: txn,
-      challenge,
-      username,
-      // Giving up doesn't count!
-      progress: -1,
-    });
-
-    // await txn.exec();
-
-    const challengeProgress = await ChallengeProgress.getPlayerProgress({
-      challenge,
-      context,
-      sort: 'DESC',
-      start: 0,
-      stop: 1000,
-      username,
-    });
-
-    // Clears out any feedback (like the feedback that prompted them to take a hint!)
-    sendMessageToWebview(context, {
-      type: 'FEEDBACK',
-      payload: {
-        feedback: '',
-      },
-    });
-
-    return {
-      number: challenge,
-      challengeUserInfo: {
-        ...challengeUserInfo,
-        gaveUpAtMs: Date.now(),
-        guesses: newGuesses,
-      },
-      challengeInfo: {
-        ...omit(challengeInfo, ['word']),
-        totalGiveUps: (challengeInfo.totalGiveUps ?? 0) + 1,
       },
       challengeProgress,
     };

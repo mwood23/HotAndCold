@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../utils';
 import { useGame } from '../hooks/useGame';
-import { GameResponse } from '../shared';
+import { SingleGameResponse } from '../shared';
 import { useDevvitListener } from '../hooks/useDevvitListener';
 
 interface PlayerProgress {
@@ -306,7 +306,7 @@ const ProgressBar = ({
 
 export const Progress = () => {
   const { challengeProgress } = useGame();
-  const [progress, setProgress] = useState<GameResponse['challengeProgress'] | null>(null);
+  const [progress, setProgress] = useState<SingleGameResponse['challengeProgress'] | null>(null);
   const progressUpdate = useDevvitListener('PLAYER_PROGRESS_UPDATE');
 
   useEffect(() => {

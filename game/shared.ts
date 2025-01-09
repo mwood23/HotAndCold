@@ -1,8 +1,4 @@
-export type Page =
-  | "loading"
-  | "play"
-  | "stats"
-  | "win";
+export type Page = 'loading' | 'play' | 'stats' | 'win';
 
 export type Guess = {
   word: string;
@@ -42,7 +38,7 @@ export type ScoreExplanation = {
   };
 };
 
-export type Game = {
+export type SingleGame = {
   number: number;
   // TODO: Need to get this
   // userStreak: number;
@@ -67,12 +63,16 @@ export type Game = {
   challengeProgress: PlayerProgress;
 };
 
-export type GameResponse = Game;
+export type SingleGameResponse = SingleGame;
+
+export type RaidGameResponse = {
+  foo: string;
+};
 
 export type UserSettings = {
-  sortDirection: "ASC" | "DESC";
-  sortType: "SIMILARITY" | "TIMESTAMP";
-  layout: "CONDENSED" | "EXPANDED";
+  sortDirection: 'ASC' | 'DESC';
+  sortType: 'SIMILARITY' | 'TIMESTAMP';
+  layout: 'CONDENSED' | 'EXPANDED';
   isUserOptedIntoReminders: boolean;
 };
 
@@ -88,73 +88,75 @@ export type ChallengeLeaderboardResponse = {
 };
 
 export type WebviewToBlocksMessage =
-  | { type: "GAME_INIT" }
+  | { type: 'GAME_INIT' }
   | {
-    type: "WORD_SUBMITTED";
-    value: string;
-  }
-  | { type: "HINT_REQUEST" }
-  | { type: "GIVE_UP_REQUEST" }
+      type: 'WORD_SUBMITTED';
+      value: string;
+    }
+  | { type: 'HINT_REQUEST' }
+  | { type: 'GIVE_UP_REQUEST' }
   | {
-    type: "SHOW_TOAST";
-    string: string;
-  }
-  | { type: "LEADERBOARD_FOR_CHALLENGE" }
+      type: 'SHOW_TOAST';
+      string: string;
+    }
+  | { type: 'LEADERBOARD_FOR_CHALLENGE' }
   | {
-    type: "TOGGLE_USER_REMINDER";
-    payload: {};
-  };
+      type: 'TOGGLE_USER_REMINDER';
+      payload: {};
+    };
 
 export type FeedbackResponse = {
   feedback: string;
   action?: {
     message: string;
-    type: "HINT" | "GIVE_UP" | "NONE";
+    type: 'HINT' | 'GIVE_UP' | 'NONE';
   };
 };
 
 export type BlocksToWebviewMessage =
   // TODO: Just make `GAME_RESPONSE`?
   | {
-    type: "INIT";
-    payload: GameResponse;
-  }
+      type: 'INIT';
+      payload:
+        | { type: 'SINGLE_PLAYER'; game: SingleGameResponse }
+        | { type: 'RAID'; game: RaidGameResponse };
+    }
   | {
-    type: "GAME_INIT_RESPONSE";
-    payload: GameResponse;
-  }
+      type: 'SINGLE_PLAYER_GAME_INIT_RESPONSE';
+      payload: SingleGameResponse;
+    }
   | {
-    type: "TOGGLE_USER_REMINDER_RESPONSE";
-    payload: {
-      isUserOptedIntoReminders: boolean;
+      type: 'TOGGLE_USER_REMINDER_RESPONSE';
+      payload: {
+        isUserOptedIntoReminders: boolean;
+      };
+    }
+  | {
+      type: 'WORD_SUBMITTED_RESPONSE';
+      payload: SingleGameResponse;
+    }
+  | {
+      type: 'HINT_RESPONSE';
+      payload: SingleGameResponse;
+    }
+  | {
+      type: 'GIVE_UP_RESPONSE';
+      payload: SingleGameResponse;
+    }
+  | {
+      type: 'PLAYER_PROGRESS_UPDATE';
+      payload: { challengeProgress: SingleGameResponse['challengeProgress'] };
+    }
+  | {
+      type: 'CHALLENGE_LEADERBOARD_RESPONSE';
+      payload: ChallengeLeaderboardResponse;
+    }
+  | {
+      type: 'FEEDBACK';
+      payload: FeedbackResponse;
     };
-  }
-  | {
-    type: "WORD_SUBMITTED_RESPONSE";
-    payload: GameResponse;
-  }
-  | {
-    type: "HINT_RESPONSE";
-    payload: GameResponse;
-  }
-  | {
-    type: "GIVE_UP_RESPONSE";
-    payload: GameResponse;
-  }
-  | {
-    type: "PLAYER_PROGRESS_UPDATE";
-    payload: { challengeProgress: GameResponse["challengeProgress"] };
-  }
-  | {
-    type: "CHALLENGE_LEADERBOARD_RESPONSE";
-    payload: ChallengeLeaderboardResponse;
-  }
-  | {
-    type: "FEEDBACK";
-    payload: FeedbackResponse;
-  };
 
 export type DevvitMessage = {
-  type: "devvit-message";
+  type: 'devvit-message';
   data: { message: BlocksToWebviewMessage };
 };

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { Game } from '../shared';
+import { SingleGame } from '../shared';
 import { sendMessageToDevvit } from '../utils';
 import { useDevvitListener } from './useDevvitListener';
 import { useSetPage } from './usePage';
@@ -11,19 +11,19 @@ const isEmpty = (obj: object): boolean => {
   return Object.keys(obj).length === 0;
 };
 
-const GameContext = createContext<Partial<Game>>({});
+const GameContext = createContext<Partial<SingleGame>>({});
 const GameUpdaterContext = createContext<React.Dispatch<
-  React.SetStateAction<Partial<Game>>
+  React.SetStateAction<Partial<SingleGame>>
 > | null>(null);
 // foo to trigger rebuild
 export const GameContextProvider = ({ children }: { children: React.ReactNode }) => {
   const setPage = useSetPage();
   const mocks = useMocks();
-  const [game, setGame] = useState<Partial<Game>>(
+  const [game, setGame] = useState<Partial<SingleGame>>(
     mocks.getMock('mocks')?.game ?? GAME_INIT_DATA ?? {}
   );
   logger.info(`game state:`, game);
-  const initResponse = useDevvitListener('GAME_INIT_RESPONSE');
+  const initResponse = useDevvitListener('SINGLE_PLAYER_GAME_INIT_RESPONSE');
   const submissionResponse = useDevvitListener('WORD_SUBMITTED_RESPONSE');
   const hintResponse = useDevvitListener('HINT_RESPONSE');
   const giveUpResponse = useDevvitListener('GIVE_UP_RESPONSE');
