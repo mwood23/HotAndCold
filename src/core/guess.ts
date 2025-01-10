@@ -14,11 +14,11 @@ import { Streaks } from './streaks.js';
 import { ChallengeLeaderboard } from './challengeLeaderboard.js';
 import { Score } from './score.js';
 import { isEmptyObject, omit, sendMessageToWebview } from '../utils/utils.js';
-import { SingleGameResponse, Guess } from '../../game/shared.js';
+import { GameResponse, Guess } from '../../game/shared.js';
 import { Similarity } from './similarity.js';
 import { ChallengePlayers } from './challengePlayers.js';
 import { ChallengeProgress } from './challengeProgress.js';
-import { RichTextBuilder } from '@devvit/public-api';
+import { Comment, RichTextBuilder } from '@devvit/public-api';
 import { getPrettyDuration } from '../utils/prettyDuration.js';
 import { getHeatForGuess } from '../utils/getHeat.js';
 import { Feedback } from './feedback.js';
@@ -201,7 +201,7 @@ export const getHintForUser = zoddy(
     username: zodRedditUsername,
     challenge: z.number().gt(0),
   }),
-  async ({ context, username, challenge }): Promise<SingleGameResponse> => {
+  async ({ context, username, challenge }): Promise<GameResponse> => {
     const challengeInfo = await Challenge.getChallenge({
       redis: context.redis,
       challenge,
@@ -305,13 +305,7 @@ export const submitGuess = zoddy(
     challenge: z.number().gt(0),
     guess: z.string().trim().toLowerCase(),
   }),
-  async ({
-    context,
-    username,
-    challenge,
-    guess: rawGuess,
-    avatar,
-  }): Promise<SingleGameResponse> => {
+  async ({ context, username, challenge, guess: rawGuess, avatar }): Promise<GameResponse> => {
     await maybeInitForUser({ redis: context.redis, username, challenge });
 
     // const txn = await context.redis.watch();
@@ -464,75 +458,73 @@ export const submitGuess = zoddy(
 
       // NOTE: This is bad for perf and should really be a background job or something
       // Users might see a delay in seeing the winning screen
-      // if (challengeInfo.winnersCircleCommentId) {
-      // const rootCommentThread = await context.reddit.getCommentById(
-      //   challengeInfo.winnersCircleCommentId,
-      // );
+      let winnersCircleComment: Comment | undefined;
+      if (challengeInfo.winnersCircleCommentId) {
+        const rootCommentThread = await context.reddit.getCommentById(
+          challengeInfo.winnersCircleCommentId
+        );
 
-      const coldestGuess = newGuesses.reduce((prev, current) =>
-        prev.normalizedSimilarity < current.normalizedSimilarity ? prev : current
-      );
-      const averageNormalizedSimilarity = Math.round(
-        newGuesses.reduce((acc, current) => acc + current.normalizedSimilarity, 0) /
-          newGuesses.length
-      );
-      const totalHints = newGuesses.filter((x) => x.isHint).length;
+        const coldestGuess = newGuesses.reduce((prev, current) =>
+          prev.normalizedSimilarity < current.normalizedSimilarity ? prev : current
+        );
+        const averageNormalizedSimilarity = Math.round(
+          newGuesses.reduce((acc, current) => acc + current.normalizedSimilarity, 0) /
+            newGuesses.length
+        );
+        const totalHints = newGuesses.filter((x) => x.isHint).length;
 
-      const postId = await ChallengeToPost.getPostForChallengeNumber({
-        redis: txn,
-        challenge,
-      });
-      const winnersCircleComment = await context.reddit.submitComment({
-        id: postId,
-        // @ts-expect-error The types in devvit are wrong
-        richtext: new RichTextBuilder()
-          .paragraph((p) => p.text({ text: `u/${username} solved the challenge!` }))
-          .paragraph((p) =>
-            p.text({
-              text: newGuesses
-                .map((item) => {
-                  const heat = getHeatForGuess(item);
-                  if (heat === 'COLD') {
-                    return '🔵';
-                  }
+        winnersCircleComment = await rootCommentThread.reply({
+          // @ts-expect-error The types in devvit are wrong
+          richtext: new RichTextBuilder()
+            .paragraph((p) => p.text({ text: `u/${username} solved the challenge!` }))
+            .paragraph((p) =>
+              p.text({
+                text: newGuesses
+                  .map((item) => {
+                    const heat = getHeatForGuess(item);
+                    if (heat === 'COLD') {
+                      return '🔵';
+                    }
 
-                  if (heat === 'WARM') {
-                    return '🟡';
-                  }
+                    if (heat === 'WARM') {
+                      return '🟡';
+                    }
 
-                  if (heat === 'HOT') {
-                    return '🔴';
-                  }
-                })
-                .join(''),
+                    if (heat === 'HOT') {
+                      return '🔴';
+                    }
+                  })
+                  .join(''),
+              })
+            )
+            .paragraph((p) => {
+              p.text({
+                text: `Score: ${score?.finalScore}${score?.finalScore === 100 ? ' (perfect)' : ''}`,
+              });
+              p.linebreak();
+              p.text({
+                text: `Total guesses: ${newGuesses.length} (${totalHints} hints)`,
+              });
+              p.linebreak();
+              p.text({
+                text: `Time to solve: ${getPrettyDuration(
+                  // @ts-expect-error This is a bug in the types
+                  new Date(startedPlayingAtMs),
+                  new Date(completedAt)
+                )}`,
+              });
+              p.linebreak();
+              p.text({
+                text: `Coldest guess: ${coldestGuess.word} (${coldestGuess.normalizedSimilarity}%)`,
+              });
+              p.linebreak();
+              p.text({
+                text: `Average heat: ${averageNormalizedSimilarity}%`,
+              });
             })
-          )
-          .paragraph((p) => {
-            p.text({
-              text: `Score: ${score?.finalScore}${score?.finalScore === 100 ? ' (perfect)' : ''}`,
-            });
-            p.linebreak();
-            p.text({
-              text: `Total guesses: ${newGuesses.length} (${totalHints} hints)`,
-            });
-            p.linebreak();
-            p.text({
-              text: `Time to solve: ${getPrettyDuration(
-                new Date(startedPlayingAtMs),
-                new Date(completedAt)
-              )}`,
-            });
-            p.linebreak();
-            p.text({
-              text: `Coldest guess: ${coldestGuess.word} (${coldestGuess.normalizedSimilarity}%)`,
-            });
-            p.linebreak();
-            p.text({
-              text: `Average heat: ${averageNormalizedSimilarity}%`,
-            });
-          })
-          .build(),
-      });
+            .build(),
+        });
+      }
 
       await markChallengeSolvedForUser({
         challenge,
@@ -540,71 +532,10 @@ export const submitGuess = zoddy(
         username,
         completedAt,
         score,
-        winnersCircleCommentId: winnersCircleComment.id,
+        winnersCircleCommentId: winnersCircleComment?.id,
       });
 
       console.log(`Incrementing streak for user ${username}`);
-
-      // TODO: Threaded comments eventually
-      // rootCommentThread.reply({
-      //   // @ts-expect-error The types in devvit are wrong
-      // richtext: new RichTextBuilder()
-      //   .paragraph((p) =>
-      //     p.text({ text: `u/${username} solved the challenge!` })
-      //   )
-      //   .paragraph((p) =>
-      //     p.text({
-      //       text: newGuesses.map((item) => {
-      //         const heat = getHeatForGuess(item);
-      //         if (heat === "COLD") {
-      //           return "🔵";
-      //         }
-
-      //         if (
-      //           heat === "WARM"
-      //         ) {
-      //           return "🟡";
-      //         }
-
-      //         if (heat === "HOT") {
-      //           return "🔴";
-      //         }
-      //       }).join(""),
-      //     })
-      //   )
-      //   .paragraph((p) => {
-      //     p.text({
-      //       text: `Score: ${score?.finalScore}${
-      //         score?.finalScore === 100 ? " (perfect)" : ""
-      //       }`,
-      //     });
-      //     p.linebreak();
-      //     p.text({
-      //       text:
-      //         `Total guesses: ${newGuesses.length} (${totalHints} hints)`,
-      //     });
-      //     p.linebreak();
-      //     p.text({
-      //       text: `Time to solve: ${
-      //         getPrettyDuration(
-      //           new Date(startedPlayingAtMs),
-      //           new Date(completedAt),
-      //         )
-      //       }`,
-      //     });
-      //     p.linebreak();
-      //     p.text({
-      //       text:
-      //         `Coldest guess: ${coldestGuess.word} (${coldestGuess.normalizedSimilarity}%)`,
-      //     });
-      //     p.linebreak();
-      //     p.text({
-      //       text: `Average heat: ${averageNormalizedSimilarity}%`,
-      //     });
-      //   })
-      //   .build(),
-      // });
-      // }
 
       // Only increment streak if the user solved the current day's challenge
       if (currentChallengeNumber === challenge) {
@@ -690,7 +621,7 @@ export const giveUp = zoddy(
     username: zodRedditUsername,
     challenge: z.number().gt(0),
   }),
-  async ({ context, username, challenge }): Promise<SingleGameResponse> => {
+  async ({ context, username, challenge }): Promise<GameResponse> => {
     // TODO: Transactions are broken
     // const txn = await context.redis.watch();
     // await txn.multi();

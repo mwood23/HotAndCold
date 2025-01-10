@@ -1,15 +1,10 @@
-import { z } from "zod";
-import {
-  zoddy,
-  zodRedditUsername,
-  zodRedis,
-  zodTransaction,
-} from "../utils/zoddy.js";
+import { z } from 'zod';
+import { zoddy, zodRedditUsername, zodRedis, zodTransaction } from '../utils/zoddy.js';
 
-export * as Reminders from "./reminders.js";
+export * as Reminders from './reminders.js';
 
 // Original to make it super explicit since we might let people play the archive on any postId
-export const getChallengeToWord = () => `reminders` as const;
+export const getRemindersKey = () => `reminders` as const;
 
 export const setReminderForUsername = zoddy(
   z.object({
@@ -17,11 +12,11 @@ export const setReminderForUsername = zoddy(
     username: zodRedditUsername,
   }),
   async ({ redis, username }) => {
-    await redis.zAdd(getChallengeToWord(), {
+    await redis.zAdd(getRemindersKey(), {
       member: username,
       score: 1,
     });
-  },
+  }
 );
 
 export const isUserOptedIntoReminders = zoddy(
@@ -30,10 +25,10 @@ export const isUserOptedIntoReminders = zoddy(
     username: zodRedditUsername,
   }),
   async ({ redis, username }) => {
-    const score = await redis.zScore(getChallengeToWord(), username);
+    const score = await redis.zScore(getRemindersKey(), username);
 
     return score === 1;
-  },
+  }
 );
 
 export const removeReminderForUsername = zoddy(
@@ -42,8 +37,8 @@ export const removeReminderForUsername = zoddy(
     username: zodRedditUsername,
   }),
   async ({ redis, username }) => {
-    await redis.zRem(getChallengeToWord(), [username]);
-  },
+    await redis.zRem(getRemindersKey(), [username]);
+  }
 );
 
 export const getUsersOptedIntoReminders = zoddy(
@@ -51,12 +46,21 @@ export const getUsersOptedIntoReminders = zoddy(
     redis: zodRedis,
   }),
   async ({ redis }) => {
-    const users = await redis.zRange(getChallengeToWord(), 1, 1, {
-      by: "score",
+    const data = await redis.zRange(getRemindersKey(), 1, 1, {
+      by: 'score',
     });
 
-    return users.map((user) => user.member);
-  },
+    return data.map((item) => item.member);
+  }
+);
+
+export const totalReminders = zoddy(
+  z.object({
+    redis: zodRedis,
+  }),
+  async ({ redis }) => {
+    return await redis.zCard(getRemindersKey());
+  }
 );
 
 export const toggleReminderForUsername = zoddy(
@@ -74,5 +78,5 @@ export const toggleReminderForUsername = zoddy(
       await setReminderForUsername({ redis, username });
       return { newValue: true };
     }
-  },
+  }
 );
